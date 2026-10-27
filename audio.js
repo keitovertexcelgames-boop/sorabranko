@@ -153,7 +153,7 @@
       return false;
     }
     this.stop();
-    const buffer = this.renderBar(bpm);
+    const buffer = this.renderBar(bpm, arguments.length > 1 ? arguments[1] : 8);
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
     source.loop = true;
@@ -223,19 +223,20 @@
     return buffer;
   };
 
-  Synth.prototype.renderBar = function (bpm) {
+  Synth.prototype.renderBar = function (bpm, beats) {
     const rate = this.ctx.sampleRate;
+    const bars = beats || 8;
     const beatSamples = Math.max(1, Math.floor(rate * 60 / bpm));
-    const frames = beatSamples * 4;
+    const frames = beatSamples * bars;
     const left = new Float32Array(frames);
-    const notes = [220, 329.63, 261.63, 392];
-    for (let beat = 0; beat < 4; beat += 1) {
+    const notes = [262, 330, 392, 523, 330, 392, 494, 523];
+    for (let beat = 0; beat < bars; beat += 1) {
       const start = beat * beatSamples;
-      const accent = beat === 3;
-      addKick(left, start, accent ? 0.46 : 0.26, rate);
-      addWood(left, start, accent ? 0.42 : 0.24, 1000 + beat, rate);
-      addPluck(left, start, notes[beat], accent ? 0.11 : 0.07, rate);
-      addHat(left, start + Math.floor(beatSamples / 2), 0.05, 8000 + beat, rate);
+      const accent = beat === bars - 1;
+      addKick(left, start, accent ? 0.5 : beat % 4 === 0 ? 0.32 : 0.16, rate);
+      addWood(left, start, accent ? 0.48 : 0.18, 1000 + beat, rate);
+      addPluck(left, start, notes[beat % notes.length], accent ? 0.13 : 0.065, rate);
+      addHat(left, start + Math.floor(beatSamples / 2), 0.04, 8000 + beat, rate);
     }
     const fade = Math.floor(rate * 0.012);
     if (fade > 1 && fade < frames) {

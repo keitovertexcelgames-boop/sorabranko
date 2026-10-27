@@ -1,4 +1,4 @@
-/* 拍に合わせて手を離し、放物線の着地点で点を取る。GameScene.swift と同じ進行。 */
+/* 回る席から、拍に合わせて手を離す。 */
 (function (root) {
   const T = () => root.TUNING;
   const Physics = () => root.Physics;
@@ -16,11 +16,10 @@
     mode: "title",
     run: "attract",
     phase: { kind: "boot" },
-    layout: null,
+    park: null,
+    shape: null,
     stageIndex: 0,
-    flightIndex: 0,
-    direction: 1,
-    releasedThisSwing: false,
+    rideIndex: 0,
     score: 0,
     awardedBonus: 0,
     combo: 0,
@@ -32,45 +31,50 @@
     ignoreUntil: 0,
     shake: 0,
     shakeTime: 0,
-    zoom: 1,
-    flash: 0,
-    impact: 0,
-    netSag: 0,
-    netSagX: 0,
-    safeX: 18,
-    safeY: 12,
+    muted: false,
     popups: [],
     particles: [],
-    trail: [],
-    muted: false,
-    report: null,
+    releasedThis: false,
     w: 0,
     h: 0,
     dpr: 1,
     song: 0,
+    phi: 0,
+    target: { x: 0, z: 0 },
+    predictor: null,
     countText: null,
     ring: null,
     banner: null,
     dim: 0,
-    star: null,
+    hot: false,
+    attract: true,
     displayedScore: 0,
     debugText: "",
-    spotlightX: 0,
+    safeX: 18,
+    safeY: 12,
+    flying: null,
+    landed: null,
+    renderFlight: null,
+    open: 1,
   };
 
   let fitted = false;
   let resultStamp = "";
+  let lastTouchAt = 0;
 
   function now() {
     return performance.now() / 1000;
   }
 
+  function stageAt(index) {
+    return T().stages[Math.min(index, T().stages.length - 1)];
+  }
+
   function judgementColor(judgement) {
-    const palette = root.PALETTE;
-    if (judgement === "perfect") return palette.gold;
-    if (judgement === "great") return palette.cream;
-    if (judgement === "good") return palette.sky;
-    return palette.miss;
+    if (judgement === "perfect") return "#d35400";
+    if (judgement === "great") return "#24324a";
+    if (judgement === "good") return "#1f8fbf";
+    return "#e06a6a";
   }
 
   function timingCaption(offsetMs, released) {
@@ -78,6 +82,13 @@
     if (Math.abs(offsetMs) < 12) return "ぴったり";
     if (offsetMs < 0) return "早い " + Math.abs(offsetMs).toFixed(0) + "ms";
     return "遅い " + offsetMs.toFixed(0) + "ms";
+  }
+
+  function labelOf(judgement) {
+    if (judgement === "perfect") return "完璧";
+    if (judgement === "great") return "見事";
+    if (judgement === "good") return "良い";
+    return "外れ";
   }
 
   function readSafe() {
@@ -88,6 +99,12 @@
     };
     state.safeX = Math.max(18, px("--safe-x"));
     state.safeY = Math.max(10, px("--safe-y"));
+  }
+
+  function portraitBlocked() {
+    const width = state.w || root.innerWidth;
+    const height = state.h || root.innerHeight;
+    return height > width * 1.05;
   }
 
   function fit() {
@@ -115,19 +132,13 @@
       fitted = true;
       enterAttract();
     } else if (changed) {
-      rebuildLayout();
+      rebuildPark();
     }
   }
 
-  function rebuildLayout() {
-    const stage = T().stages[state.stageIndex] || T().stages[0];
-    state.layout = Physics().makeLayout(state.w, state.h, stage);
-    if (state.w > 80) {
-      const probe = Physics().perfectLandingError(state.w, state.h, state.stageIndex);
-      if (Math.abs(probe.error) > 3) {
-        console.warn("空中ブランコ: 完璧着地の誤差 " + probe.error.toFixed(2) + " px");
-      }
-    }
+  function rebuildPark() {
+    state.park = Physics().makePark(stageAt(state.stageIndex));
+    state.shape = state.park.shape;
   }
 
   function resetRun() {
@@ -137,12 +148,12 @@
     state.bestCombo = 0;
     state.records = [];
     state.stageIndex = 0;
-    state.flightIndex = 0;
-    state.direction = 1;
-    state.releasedThisSwing = false;
+    state.rideIndex = 0;
+    state.releasedThis = false;
     state.popups = [];
     state.particles = [];
-    state.trail = [];
+    state.flying = null;
+    state.landed = null;
   }
 
   function enterAttract() {
@@ -150,53 +161,38 @@
     state.run = "attract";
     state.report = null;
     resetRun();
-    rebuildLayout();
+    rebuildPark();
     beginMusic();
-    state.phase = { kind: "arming", waited: 0 };
+    state.phase = { kind: "arming" };
     state.banner = null;
     syncDom();
   }
 
   function startCampaign() {
     if (state.mode === "playing" && state.phase.kind !== "finished") return;
-    state.ignoreUntil = now() + 0.4;
+    state.ignoreUntil = now() + 0.35;
     state.mode = "playing";
     state.run = "campaign";
     state.report = null;
     resetRun();
     audio.stop();
     state.fallbackTime = 0;
-    rebuildLayout();
-    state.phase = { kind: "announce", remain: 1.75 };
-    showBanner(null);
+    rebuildPark();
+    state.phase = { kind: "announce", remain: 1.6 };
+    showBanner();
     syncDom();
   }
 
   function beginMusic() {
     state.preferFallback = false;
     state.fallbackTime = 0;
-    if (!audio.start(state.layout.stage.bpm)) {
+    if (!audio.start(state.park.stage.bpm, state.park.stage.revBeats)) {
       state.preferFallback = true;
       state.fallbackTime = 0;
     }
   }
 
-  function beginSwing(startSongTime) {
-    state.releasedThisSwing = false;
-    state.trail = [];
-    state.banner = null;
-    state.phase = { kind: "swing", start: startSongTime };
-  }
-
   function visualNow() {
-    return state.fallbackTime - T().presentationDelay;
-  }
-
-  function tapTime() {
-    if (!state.preferFallback) {
-      const time = audio.musicTime();
-      if (time != null) return time - T().presentationDelay;
-    }
     return state.fallbackTime - T().presentationDelay;
   }
 
@@ -210,6 +206,19 @@
     }
   }
 
+  function boundsFor(rideIndex) {
+    const stage = state.park.stage;
+    const beat = Physics().beatDuration(stage.bpm);
+    const release = Physics().releaseSongTime(stage, rideIndex);
+    const start = release - (T().windowBeats - 1) * beat;
+    return {
+      start: start,
+      release: release,
+      earliest: start + T().earliestTapBeat * beat,
+      latest: release + T().lateGraceBeats * beat,
+    };
+  }
+
   function registerTap() {
     if (now() < state.ignoreUntil) return;
     if (portraitBlocked()) return;
@@ -217,75 +226,39 @@
       startCampaign();
       return;
     }
-    if (state.mode === "result") return;
-    if (state.phase.kind !== "swing") return;
-    tryRelease(tapTime(), state.phase.start);
+    if (state.mode !== "playing" || state.phase.kind !== "live" || state.releasedThis) return;
+    tryRelease(visualNow());
   }
 
-  function tryRelease(visualTime, swingStart) {
-    if (state.phase.kind !== "swing" || state.releasedThisSwing) return;
-    const swing = Physics().makeSwing(state.layout, state.direction);
-    const local = visualTime - swingStart;
-    const localBeat = local / Physics().beatDuration(swing);
-    if (localBeat < T().earliestTapBeat) return;
-    if (localBeat > T().releaseBeat + T().lateGraceBeats) return;
-    state.releasedThisSwing = true;
-    const offset = local - Physics().releaseTime(swing);
+  function tryRelease(songTime) {
+    if (state.phase.kind !== "live" || state.releasedThis) return;
+    const bounds = boundsFor(state.rideIndex);
+    if (songTime < bounds.earliest || songTime > bounds.latest) return;
+    state.releasedThis = true;
+    const offset = songTime - bounds.release;
     const judgement = Physics().grade(offset);
-    const sample = Physics().sampleAt(swing, Math.max(0.001, local));
-    const platform = Physics().destinationPedestal(state.layout, state.direction);
-    const landing = Physics().evaluate(
-      sample,
-      state.layout.gravity,
-      state.layout.hipPlatformY,
-      state.layout.hipNetY,
-      platform.x,
-      platform.x + platform.width,
-      state.layout.netMinX,
-      state.layout.netMaxX,
-      Physics().sweetX(state.layout, state.direction),
-      state.direction
-    );
-    const scored = Physics().scoreFlight(judgement, landing.kind, landing.distanceToSweet, platform.width / 2, state.combo, true);
-    const spin = { perfect: 0.5, great: 1.3, good: 2.4, miss: 4.8 }[judgement] * state.direction;
-    const anim = {
-      start: visualTime,
-      duration: Math.max(0.32, landing.time),
-      sample: sample,
-      gravity: state.layout.gravity,
+    const flight = Physics().predict(state.park, songTime);
+    const zone = Physics().classify(state.park, flight.landing, songTime);
+    const scored = Physics().scoreFlight(judgement, zone.zone, zone.distance, state.park.stage.targetRadius, state.combo, true);
+    state.flying = {
+      start: songTime,
+      flight: flight,
       judgement: judgement,
       offsetMs: offset * 1000,
-      landing: landing,
+      zone: zone,
       points: scored.points,
       comboAfter: scored.comboAfter,
-      spin: spin,
     };
-    state.phase = { kind: "flying", anim: anim };
-    state.trail = [];
+    state.phase = { kind: "flying" };
     audio.playWhoosh();
-    buzz(judgement);
     if (state.run === "campaign") {
-      popup(labelOf(judgement), timingCaption(anim.offsetMs, true), { x: sample.position.x, y: sample.position.y + 46 }, judgementColor(judgement), judgement === "perfect" ? 46 : 40);
+      popup(labelOf(judgement), timingCaption(state.flying.offsetMs, true), flight.seat, judgementColor(judgement), 40);
     }
-    burst(sample.position, root.PALETTE.gold, judgement === "perfect" ? 16 : 8, 70);
-    if (judgement === "perfect") {
-      state.shake = 7;
-      state.zoom = 0.965;
-      state.flash = 0.33;
-    } else if (judgement === "great") {
-      state.shake = 3.5;
-    }
+    if (judgement === "perfect") state.shake = 5;
   }
 
-  function labelOf(judgement) {
-    if (judgement === "perfect") return "完璧";
-    if (judgement === "great") return "見事";
-    if (judgement === "good") return "良い";
-    return "外れ";
-  }
-
-  function missTheBeat(swingStart) {
-    state.releasedThisSwing = true;
+  function missRide() {
+    state.releasedThis = true;
     if (state.run === "campaign") {
       state.combo = 0;
       state.records.push({
@@ -293,28 +266,26 @@
         judgement: "miss",
         released: false,
         offsetMs: 0,
-        kind: "fall",
+        zone: "grass",
         distance: 0,
         points: 0,
         comboAfter: 0,
       });
-      state.bestCombo = Math.max(state.bestCombo, state.combo);
-      popup("見逃し", "手を離さなかった", { x: state.w / 2, y: state.h * 0.62 }, root.PALETTE.miss, 36);
+      const seat = Physics().predict(state.park, visualNow()).seat;
+      popup("見逃し", "手を離さなかった", seat, "#e06a6a", 32);
     }
     audio.playMiss();
-    if (navigator.vibrate) navigator.vibrate([18, 30, 18]);
-    enterBetween(null, false, swingStart, "miss");
+    enterBetween();
   }
 
-  function award(anim) {
-    state.impact = anim.landing.kind === "caught" ? 0.2 : 0.08;
-    if (anim.landing.kind === "net") {
-      state.netSag = 20;
-      state.netSagX = anim.landing.hip.x;
-    }
+  function award() {
+    const anim = state.flying;
+    if (!anim) return;
+    state.landed = { flight: anim.flight, until: 0 };
     if (state.run !== "campaign") {
       audio.playCatch(anim.judgement === "perfect");
-      enterBetween(anim.landing, true, null, anim.judgement);
+      burst(anim.flight.landing, anim.judgement === "perfect" ? "#ffd166" : "#fff8ee", anim.judgement === "perfect" ? 16 : 8);
+      enterBetween();
       return;
     }
     state.score += anim.points;
@@ -325,95 +296,75 @@
       judgement: anim.judgement,
       released: true,
       offsetMs: anim.offsetMs,
-      kind: anim.landing.kind,
-      distance: anim.landing.distanceToSweet,
+      zone: anim.zone.zone,
+      distance: anim.zone.distance,
       points: anim.points,
       comboAfter: anim.comboAfter,
     });
-    popup(landingTitle(anim.landing), anim.points > 0 ? "+" + root.Draw.formatPoints(anim.points) : null, { x: anim.landing.hip.x, y: anim.landing.hip.y + 52 }, root.PALETTE.cream, 28);
-    if (anim.landing.kind === "caught") {
-      audio.playCatch(anim.judgement === "perfect");
-      burst(anim.landing.hip, anim.judgement === "perfect" ? root.PALETTE.gold : root.PALETTE.cream, anim.judgement === "perfect" ? 18 : 8, 56);
-      if (anim.judgement === "perfect") state.flash = Math.max(state.flash, 0.18);
-    } else {
-      audio.playThud();
-      state.shake = Math.max(state.shake, anim.landing.kind === "fall" ? 6 : 4);
-    }
-    enterBetween(anim.landing, true, null, anim.judgement);
+    const title = anim.zone.zone === "target" && anim.zone.distance < state.park.stage.targetRadius * 0.35 ? "ど真ん中" : Physics().zoneTitle(anim.zone.zone);
+    popup(title, anim.points > 0 ? "+" + root.Draw.formatPoints(anim.points) : null, { x: anim.flight.landing.x, y: 0.8, z: anim.flight.landing.z }, "#d35400", 28);
+    if (anim.zone.zone === "pool") audio.playThud();
+    else audio.playCatch(anim.judgement === "perfect");
+    burst(anim.flight.landing, anim.zone.zone === "pool" ? "#8fd4f5" : "#ffd166", 12);
+    enterBetween();
   }
 
-  function landingTitle(landing) {
-    if (landing.kind === "caught") {
-      const half = Physics().destinationPedestal(state.layout, state.direction).width / 2;
-      return landing.distanceToSweet < half * 0.22 ? "ど真ん中" : "キャッチ";
-    }
-    if (landing.kind === "net") return landing.alongMiss < 0 ? "届かず" : "ネット";
-    return landing.alongMiss > 0 ? "飛びすぎ" : "落下";
+  function bullseyeCount() {
+    return state.records.filter((record) => record.stageIndex === state.stageIndex && record.released && record.zone === "target").length;
   }
 
-  function stageBonus() {
-    const catches = state.records.filter((record) => {
-      return record.stageIndex === state.stageIndex && record.released && record.kind === "caught" && record.judgement !== "miss";
-    }).length;
-    return catches * T().stageCatchBonus;
-  }
-
-  function enterBetween(landing, released, swingOrigin, judgement) {
-    const success = released && landing && landing.kind === "caught" && judgement !== "miss";
-    let pose = { kind: "onBar" };
-    if (landing && released) {
-      if (landing.kind === "caught") pose = { kind: "caught", x: landing.hip.x };
-      else if (landing.kind === "net") pose = { kind: "net", x: landing.hip.x };
-      else pose = { kind: "fallen", x: landing.hip.x };
-    }
-    let pending;
-    if (state.run === "attract") {
-      pending = { kind: "swing", direction: success ? -state.direction : state.direction, flightIndex: 0 };
-    } else {
-      const nextFlight = state.flightIndex + 1;
-      if (nextFlight >= state.layout.stage.flights) {
-        const bonus = stageBonus();
-        state.awardedBonus += bonus;
-        if (bonus > 0) {
-          popup("幕ボーナス +" + root.Draw.formatPoints(bonus), null, { x: state.w / 2, y: state.h * 0.58 }, root.PALETTE.gold, 26);
-        }
-        if (state.stageIndex + 1 < T().stages.length) pending = { kind: "announce", stageIndex: state.stageIndex + 1 };
-        else pending = { kind: "finish" };
-      } else {
-        pending = { kind: "swing", direction: success ? -state.direction : state.direction, flightIndex: nextFlight };
-      }
-    }
+  function enterBetween() {
     const song = visualNow();
-    const nextEvent = pending.kind === "swing" ? nextBarTime(song + 0.45, state.layout.stage.bpm) : song + 1.2;
-    state.phase = { kind: "between", nextEvent: nextEvent, pose: pose, swingOrigin: swingOrigin, pending: pending };
+    const stage = state.park.stage;
+    const nextRide = state.rideIndex + 1;
+    let until = song + 0.85;
+    let pending = "ride";
+    if (state.run === "attract") {
+      pending = "attract";
+      until = song + 0.7;
+    } else if (nextRide >= stage.rides) {
+      const bonus = bullseyeCount() * T().stageBullseyeBonus;
+      state.awardedBonus += bonus;
+      if (bonus > 0) {
+        popup("区ボーナス +" + root.Draw.formatPoints(bonus), null, { x: state.park.target.x, y: 2, z: state.park.target.z }, "#d35400", 26);
+      }
+      pending = state.stageIndex + 1 < T().stages.length ? "announce" : "finish";
+      until = song + 1.15;
+    } else {
+      const nextRelease = Physics().releaseSongTime(stage, nextRide);
+      const nextStart = nextRelease - (T().windowBeats - 1) * Physics().beatDuration(stage.bpm);
+      until = Math.max(song + 0.45, nextStart - 0.05);
+    }
+    state.phase = { kind: "between", until: until, pending: pending };
+    if (state.landed) state.landed.until = until;
   }
 
-  function nextBarTime(time, bpm) {
-    const beat = 60 / bpm;
-    const index = time / beat;
-    const startBeat = Math.ceil((index + 0.12) / 4) * 4;
-    return startBeat * beat;
-  }
-
-  function resolvePending(pending) {
-    if (pending.kind === "swing") {
-      state.direction = pending.direction;
-      state.flightIndex = pending.flightIndex;
-      beginSwing(state.phase.nextEvent);
+  function resolveBetween() {
+    const pending = state.phase.pending;
+    if (pending === "attract" || pending === "ride") {
+      if (pending === "ride") state.rideIndex += 1;
+      state.releasedThis = false;
+      state.flying = null;
+      state.landed = null;
+      state.phase = { kind: "live" };
       return;
     }
-    if (pending.kind === "announce") {
-      state.stageIndex = pending.stageIndex;
-      state.flightIndex = 0;
-      state.direction = 1;
+    if (pending === "announce") {
+      state.stageIndex += 1;
+      state.rideIndex = 0;
+      state.releasedThis = false;
+      state.flying = null;
+      state.landed = null;
       audio.stop();
       state.fallbackTime = 0;
-      rebuildLayout();
-      state.phase = { kind: "announce", remain: 1.7 };
-      showBanner(null);
+      rebuildPark();
+      state.phase = { kind: "announce", remain: 1.5 };
+      showBanner();
       return;
     }
     state.phase = { kind: "finished" };
+    state.flying = null;
+    state.landed = null;
     audio.stop();
     state.banner = null;
     state.report = makeReport(state.records, state.bestCombo);
@@ -425,35 +376,29 @@
     const stages = T().stages.map((stage, index) => {
       const mine = records.filter((record) => record.stageIndex === index);
       const flightPoints = mine.reduce((sum, record) => sum + record.points, 0);
-      const catches = mine.filter((record) => record.kind === "caught" && record.judgement !== "miss" && record.released).length;
-      const bonus = catches * T().stageCatchBonus;
-      return {
-        act: stage.act,
-        title: stage.title,
-        catches: catches,
-        flights: mine.length,
-        points: flightPoints + bonus,
-      };
+      const hits = mine.filter((record) => record.released && record.zone === "target").length;
+      const bonus = hits * T().stageBullseyeBonus;
+      return { act: stage.act, title: stage.title, hits: hits, rides: mine.length, points: flightPoints + bonus };
     });
-    const totalFlights = Math.max(records.length, 1);
-    const clean = records.filter((record) => record.judgement === "perfect" && record.kind === "caught" && record.released).length;
-    let headline = "もう一稽古";
-    let subtitle = "明日の朝稽古で、もう一度。";
+    const totalRides = Math.max(records.length, 1);
+    const clean = records.filter((record) => record.judgement === "perfect" && record.zone === "target" && record.released).length;
+    let headline = "もう一周";
+    let subtitle = "次のチケットで、的の真ん中を。";
     if (records.length && clean === records.length) {
-      headline = "完全な一夜";
-      subtitle = "すべての跳躍が、星の上だった。";
+      headline = "完全な一日";
+      subtitle = "すべての跳躍が、的の上だった。";
     } else {
-      const catches = records.filter((record) => record.kind === "caught" && record.judgement !== "miss").length;
-      const ratio = catches / totalFlights;
+      const decent = records.filter((record) => (record.zone === "target" || record.zone === "cushion") && record.judgement !== "miss").length;
+      const ratio = decent / totalRides;
       if (ratio >= 0.9) {
-        headline = "花形";
-        subtitle = "テントの視線を、ひとりじめ。";
-      } else if (ratio >= 0.65) {
-        headline = "看板役者";
-        subtitle = "お客様は拍手を惜しまない。";
-      } else if (ratio >= 0.35) {
-        headline = "旅芸人";
-        subtitle = "ネットの感触も、芸のうち。";
+        headline = "人気者";
+        subtitle = "列の先頭は、あなたのもの。";
+      } else if (ratio >= 0.6) {
+        headline = "常連";
+        subtitle = "もう一枚、買い足したくなる。";
+      } else if (ratio >= 0.3) {
+        headline = "初めての切符";
+        subtitle = "プールも、思い出のうち。";
       }
     }
     return {
@@ -471,41 +416,45 @@
     return report.records.filter((record) => record.released && record.judgement === judgement).length;
   }
 
-  function showBanner(note) {
-    const stage = state.layout.stage;
+  function showBanner() {
+    const stage = state.park.stage;
     state.banner = {
       act: stage.act,
       title: stage.title,
-      detail: note || "BPM " + Math.round(stage.bpm) + "  ·  " + stage.flights + " 跳躍",
+      detail: "BPM " + Math.round(stage.bpm) + "  ·  " + stage.rides + " 跳躍",
     };
   }
 
   function popup(text, subtitle, at, color, size) {
-    state.popups.push({ text: text, subtitle: subtitle, x: at.x, y: at.y, color: color, size: size, age: 0, life: 0.96 });
+    state.popups.push({
+      text: text,
+      subtitle: subtitle,
+      x: at.x,
+      y: at.y + 1.2,
+      z: at.z,
+      color: color,
+      size: size,
+      age: 0,
+      life: 0.95,
+    });
   }
 
-  function burst(at, color, count, distance) {
+  function burst(at, color, count) {
     for (let i = 0; i < count; i += 1) {
       const angle = Math.random() * Math.PI * 2;
-      const speed = (distance * (0.35 + Math.random() * 0.65)) / 0.48;
       state.particles.push({
         x: at.x,
-        y: at.y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed + 16 / 0.48,
+        y: 0.4,
+        z: at.z,
+        vx: Math.cos(angle) * 2.2,
+        vz: Math.sin(angle) * 2.2,
+        vy: 2 + Math.random() * 2,
         age: 0,
-        life: 0.48,
+        life: 0.55,
         color: color,
-        r: 1.4 + Math.random() * 1.6,
+        r: 2 + Math.random() * 2,
       });
     }
-  }
-
-  function buzz(judgement) {
-    if (!navigator.vibrate) return;
-    if (judgement === "perfect") navigator.vibrate(16);
-    else if (judgement === "great" || judgement === "good") navigator.vibrate(8);
-    else navigator.vibrate([18, 30, 18]);
   }
 
   function step(dt) {
@@ -515,39 +464,32 @@
       const remain = phase.remain - dt;
       if (remain <= 0) {
         beginMusic();
-        state.phase = { kind: "arming", waited: 0 };
-      } else {
-        state.phase = { kind: "announce", remain: remain };
-      }
+        state.phase = { kind: "arming" };
+      } else state.phase = { kind: "announce", remain: remain };
     } else if (phase.kind === "arming") {
       const music = audio.musicTime();
-      if (!state.preferFallback && music != null && music >= 0) beginSwing(0);
-      else if (phase.waited > 0.55) {
+      if (!state.preferFallback && music != null && music >= 0) state.phase = { kind: "live" };
+      else if ((phase.waited || 0) > 0.55) {
         state.preferFallback = true;
         state.fallbackTime = 0;
-        beginSwing(0);
-      } else {
-        state.phase = { kind: "arming", waited: phase.waited + dt };
-      }
-    } else if (phase.kind === "swing") {
-      const swing = Physics().makeSwing(state.layout, state.direction);
-      const localBeat = (song - phase.start) / Physics().beatDuration(swing);
-      if (state.run === "attract" && !state.releasedThisSwing && song >= phase.start + Physics().releaseTime(swing)) {
-        tryRelease(phase.start + Physics().releaseTime(swing), phase.start);
-      } else if (!state.releasedThisSwing && localBeat > T().releaseBeat + T().lateGraceBeats) {
-        missTheBeat(phase.start);
+        state.phase = { kind: "live" };
+      } else state.phase = { kind: "arming", waited: (phase.waited || 0) + dt };
+    } else if (phase.kind === "live") {
+      const rideIndex = state.run === "attract" ? attractRide(song) : state.rideIndex;
+      if (state.run === "attract") state.rideIndex = rideIndex;
+      const bounds = boundsFor(rideIndex);
+      if (!state.releasedThis && state.run === "attract" && song >= bounds.release && song < bounds.latest) {
+        tryRelease(bounds.release);
+      } else if (!state.releasedThis && song > bounds.latest) {
+        missRide();
       }
     } else if (phase.kind === "flying") {
-      if (song >= phase.anim.start + Math.max(phase.anim.duration, 0.32)) award(phase.anim);
-    } else if (phase.kind === "between") {
-      if (song >= phase.nextEvent) resolvePending(phase.pending);
+      if (state.flying && song >= state.flying.start + state.flying.flight.time) award();
+    } else if (phase.kind === "between" && song >= phase.until) {
+      resolveBetween();
     }
-    state.netSag *= 0.9;
-    state.impact *= 0.86;
     state.shake *= 0.86;
     state.shakeTime += dt;
-    state.flash *= 0.86;
-    state.zoom += (1 - state.zoom) * 0.1;
     state.popups.forEach((item) => {
       item.age += dt;
     });
@@ -555,58 +497,73 @@
     state.particles.forEach((dot) => {
       dot.age += dt;
       dot.x += dot.vx * dt;
-      dot.y += dot.vy * dt;
+      dot.z += dot.vz * dt;
+      dot.y = Math.max(0, dot.y + dot.vy * dt);
+      dot.vy -= 6 * dt;
     });
     state.particles = state.particles.filter((dot) => dot.age < dot.life);
+  }
+
+  function attractRide(song) {
+    const stage = state.park.stage;
+    const cycle = stage.revBeats * Physics().beatDuration(stage.bpm);
+    return Math.max(0, Math.floor(song / cycle));
   }
 
   function present() {
     const song = visualNow();
     state.song = song;
+    state.attract = state.run === "attract";
     state.displayedScore = state.score + state.awardedBonus;
-    state.dim = 0;
+    const openRaw = Math.max(0, Math.min(1, song / 1.5));
+    state.open = openRaw * openRaw * (3 - 2 * openRaw);
+    const theta = state.park.theta * (0.28 + 0.72 * state.open);
+    state.shape = Physics().rideShape(state.park.stage, theta);
+    state.phi = Physics().phiAt(state.park, song);
+    state.target = Physics().targetCenter(state.park, song);
+    state.dim = state.phase.kind === "announce" ? 0.45 : 0;
+    state.banner = state.phase.kind === "announce" ? state.banner : null;
     state.countText = null;
     state.ring = null;
-    state.star = null;
-    if (state.phase.kind === "announce") state.dim = 0.38;
-    if (state.phase.kind === "between") {
-      const lead = 0.3;
-      const start = state.phase.nextEvent - lead;
-      if (song >= start) state.dim = Math.min(1, (song - start) / lead) * 0.8;
-    }
-    if (state.phase.kind === "swing") {
-      const swing = Physics().makeSwing(state.layout, state.direction);
-      const localBeat = Math.max(0, song - state.phase.start) / Physics().beatDuration(swing);
-      if (localBeat <= T().releaseBeat + 0.38) {
-        const names = ["さん", "はい", "セー", "ノ"];
-        state.countText = names[Math.floor(localBeat)] || null;
-      }
-      if (localBeat >= T().releaseBeat - 1 && localBeat <= T().releaseBeat + 0.35) {
-        state.ring = localBeat - (T().releaseBeat - 1);
-      }
-      const ideal = Physics().barPosition(swing, Physics().releaseTime(swing));
-      const proximity = Math.abs(localBeat - T().releaseBeat);
-      state.star = {
-        x: ideal.x,
-        y: ideal.y,
-        alpha: proximity < 1.35 ? 1 - proximity / 1.35 : 0.15,
-        scale: proximity < 0.12 ? 1.35 : 1,
+    state.hot = false;
+    state.predictor = null;
+    state.renderFlight = null;
+    if (state.phase.kind === "flying" && state.flying) {
+      state.renderFlight = {
+        flight: state.flying.flight,
+        elapsed: Math.max(0, song - state.flying.start),
+        landed: false,
       };
+    } else if (state.landed && song <= state.landed.until) {
+      state.renderFlight = { flight: state.landed.flight, elapsed: state.landed.flight.time, landed: true };
     }
-    if (state.phase.kind !== "announce") state.banner = null;
-    if (T().showDebug) {
+    if (state.phase.kind === "live" || state.phase.kind === "flying") {
+      const rideIndex = state.run === "attract" ? attractRide(song) : state.rideIndex;
+      const bounds = boundsFor(rideIndex);
+      const beat = Physics().beatDuration(state.park.stage.bpm);
+      const local = (song - bounds.start) / beat;
+      if (state.phase.kind === "live" && local >= -0.05 && local <= T().windowBeats - 1 + 0.45) {
+        const names = ["さん", "はい", "セー", "ノ"];
+        if (local >= 0 && local < names.length) state.countText = names[Math.floor(local)] || null;
+        if (local >= T().windowBeats - 2) state.ring = local - (T().windowBeats - 2);
+        state.hot = Math.abs(song - bounds.release) < beat * 0.35;
+        if (state.open > 0.92 && !state.releasedThis) {
+          const flight = Physics().predict(state.park, song);
+          const dist = Math.hypot(flight.landing.x - state.target.x, flight.landing.z - state.target.z);
+          state.predictor = { landing: flight.landing, close: dist < state.park.stage.targetRadius * 1.4 };
+        }
+      }
+    }
+    if (T().showDebug && state.records.length) {
       const last = state.records[state.records.length - 1];
-      state.debugText = last ? "ずれ " + last.offsetMs.toFixed(0) + "ms   的まで " + last.distance.toFixed(0) : "";
-    } else {
-      state.debugText = "";
-    }
-    if (!state.spotlightX) state.spotlightX = state.w / 2;
+      state.debugText = "ずれ " + last.offsetMs.toFixed(0) + "ms  的まで " + last.distance.toFixed(1) + "m";
+    } else state.debugText = "";
     root.Draw.frame(ctx, state);
   }
 
   function loop(stamp) {
     root.requestAnimationFrame(loop);
-    if (!state.layout || state.w < 80 || state.h < 80) return;
+    if (!state.park || state.w < 80 || state.h < 80) return;
     const seconds = stamp / 1000;
     const dt = state.lastTick === 0 ? 1 / 60 : Math.min(0.05, seconds - state.lastTick);
     state.lastTick = seconds;
@@ -615,12 +572,6 @@
       step(dt);
       present();
     }
-  }
-
-  function portraitBlocked() {
-    const width = state.w || root.innerWidth;
-    const height = state.h || root.innerHeight;
-    return height > width * 1.05;
   }
 
   function unlockAnd(fn) {
@@ -634,8 +585,6 @@
     if (!state.muted && state.run === "attract" && state.preferFallback) beginMusic();
     syncDom();
   }
-
-  let lastTouchAt = 0;
 
   function bindPress(element, fn) {
     element.addEventListener(
@@ -654,6 +603,7 @@
       unlockAnd(fn);
     });
   }
+
   canvas.addEventListener(
     "touchstart",
     (event) => {
@@ -668,7 +618,6 @@
     if (event.pointerType === "touch") return;
     unlockAnd(registerTap);
   });
-
   bindPress(startBtn, startCampaign);
   bindPress(retryBtn, startCampaign);
   bindPress(backBtn, enterAttract);
@@ -701,7 +650,6 @@
     titleEl.hidden = state.mode !== "title";
     resultEl.hidden = state.mode !== "result";
     muteBtn.textContent = state.muted ? "音オフ" : "音オン";
-    muteBtn.setAttribute("aria-label", state.muted ? "音をオンにする" : "音をオフにする");
     if (state.mode === "result" && state.report) {
       const stamp = state.report.headline + ":" + state.report.total + ":" + state.records.length;
       if (stamp !== resultStamp) {
@@ -723,26 +671,26 @@
       row.className = "row";
       const name = document.createElement("span");
       name.textContent = stage.act + " " + stage.title;
-      const catches = document.createElement("span");
-      catches.className = "gold";
-      catches.textContent = stage.catches + "/" + stage.flights;
+      const hits = document.createElement("span");
+      hits.className = "gold";
+      hits.textContent = stage.hits + "/" + stage.rides;
       const points = document.createElement("span");
       points.className = "points";
       points.textContent = root.Draw.formatPoints(stage.points);
-      row.append(name, catches, points);
+      row.append(name, hits, points);
       rows.append(row);
     });
     const chips = document.getElementById("chips");
     chips.textContent = "";
     [
-      ["完璧", countOf(report, "perfect"), "gold"],
-      ["見事", countOf(report, "great"), ""],
-      ["良い", countOf(report, "good"), "sky"],
-      ["外れ", countOf(report, "miss"), "miss"],
-      ["見逃し", report.whiffs, "miss"],
+      ["完璧", countOf(report, "perfect")],
+      ["見事", countOf(report, "great")],
+      ["良い", countOf(report, "good")],
+      ["外れ", countOf(report, "miss")],
+      ["見逃し", report.whiffs],
     ].forEach((chip) => {
       const node = document.createElement("div");
-      node.className = "chip " + chip[2];
+      node.className = "chip";
       const value = document.createElement("strong");
       value.textContent = String(chip[1]);
       const name = document.createElement("span");
@@ -758,11 +706,23 @@
     root.visualViewport.addEventListener("scroll", fit);
   }
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && audio.unlocked && audio.ctx && audio.ctx.state === "suspended") {
-      audio.ctx.resume();
-    }
+    if (!document.hidden && audio.unlocked && audio.ctx && audio.ctx.state === "suspended") audio.ctx.resume();
   });
 
   fit();
   root.requestAnimationFrame(loop);
+
+  if (typeof location !== "undefined" && String(location.search || "").indexOf("debug=1") >= 0) {
+    root.__swing = {
+      state: state,
+      audioState: function () {
+        return audio.ctx ? audio.ctx.state : "none";
+      },
+      releasePerfect: function () {
+        if (state.phase.kind !== "live" || state.releasedThis) return false;
+        tryRelease(boundsFor(state.rideIndex).release);
+        return true;
+      },
+    };
+  }
 })(typeof globalThis !== "undefined" ? globalThis : this);

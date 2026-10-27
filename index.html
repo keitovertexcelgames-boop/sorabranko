@@ -3,30 +3,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#140c12">
+  <meta name="theme-color" content="#8fd4f5">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>空中ブランコ</title>
   <style>
     :root {
-      --night: #140c12;
-      --gold: #e6b35c;
-      --cream: #f3e6d0;
-      --burgundy: #7c2436;
-      --miss: #e07a7a;
-      --sky: #8ec8e0;
-      --safe-x: max(env(safe-area-inset-left), env(safe-area-inset-right));
-      --safe-y: max(env(safe-area-inset-top), env(safe-area-inset-bottom));
-      --display: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif CJK JP", "WenQuanYi Micro Hei", serif;
+      --sky: #8fd4f5;
+      --ink: #24324a;
+      --cream: #fff8ee;
+      --coral: #ff4d6d;
+      --orange: #d35400;
+      --gold: #e09f3e;
+      --display: "Hiragino Maru Gothic ProN", "Hiragino Maru Gothic Pro", "Yu Gothic", "YuGothic", "Noto Sans CJK JP", "WenQuanYi Micro Hei", sans-serif;
       --body: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "YuGothic", "Noto Sans CJK JP", "WenQuanYi Micro Hei", sans-serif;
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body {
       margin: 0;
       height: 100%;
-      background: var(--night);
-      color: var(--cream);
+      background: var(--sky);
+      color: var(--ink);
       font-family: var(--body);
       overflow: hidden;
       position: fixed;
@@ -54,21 +52,26 @@
     }
     button {
       font-family: var(--display);
-      color: var(--cream);
-      background: var(--burgundy);
-      border: 1.5px solid var(--gold);
+      color: #fff;
+      background: var(--coral);
+      border: 0;
       border-radius: 999px;
       padding: 10px 28px;
       font-size: 20px;
+      font-weight: 700;
       line-height: 1.2;
       touch-action: manipulation;
       cursor: pointer;
+      box-shadow: 0 3px 0 #c93654;
     }
     button.ghost {
       background: transparent;
-      border-color: transparent;
+      border: 0;
+      box-shadow: none;
+      color: var(--ink);
       font-family: var(--body);
       font-size: 13px;
+      font-weight: 600;
       padding: 6px 10px;
     }
     #mute {
@@ -78,9 +81,11 @@
       right: calc(10px + env(safe-area-inset-right));
       font-family: var(--body);
       font-size: 12px;
-      font-weight: 600;
+      font-weight: 700;
       padding: 6px 10px;
-      background: rgba(0, 0, 0, 0.45);
+      color: var(--ink);
+      background: rgba(255, 248, 238, 0.88);
+      box-shadow: none;
     }
     #title, #result, #rotate {
       position: absolute;
@@ -94,19 +99,25 @@
       align-items: center;
       text-align: center;
       pointer-events: none;
-      padding: 12px 20px calc(14px + env(safe-area-inset-bottom));
-      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.75);
+      padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    }
+    #title .card, #result .card {
+      pointer-events: none;
+      background: rgba(255, 248, 238, 0.92);
+      border-radius: 18px;
+      padding: 10px 16px 12px;
+      box-shadow: 0 8px 24px rgba(36, 50, 74, 0.12);
     }
     #title h1 {
       margin: 0;
       font-family: var(--display);
-      font-weight: 600;
-      font-size: clamp(28px, 6vh, 42px);
-      color: var(--gold);
+      font-weight: 700;
+      font-size: clamp(26px, 5.4vh, 36px);
+      color: var(--coral);
     }
-    #title p { margin: 4px 0 0; font-size: clamp(12px, 2.1vh, 14px); }
+    #title p { margin: 2px 0 0; font-size: clamp(12px, 2.1vh, 14px); }
     #title .rules {
-      margin: 10px 0;
+      margin: 6px 0 8px;
       font-size: clamp(11px, 1.9vh, 13px);
       line-height: 1.45;
     }
@@ -116,26 +127,23 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(0, 0, 0, 0.5);
+      background: rgba(143, 212, 245, 0.35);
       padding: 12px;
     }
     #result .card {
-      width: min(640px, 100%);
+      width: min(680px, 100%);
       max-height: 100%;
       overflow: auto;
       touch-action: pan-y;
-      background: rgba(20, 12, 18, 0.88);
-      border: 1px solid rgba(230, 179, 92, 0.75);
-      border-radius: 18px;
-      padding: 14px 16px 12px;
+      pointer-events: auto;
       text-align: center;
     }
     #result h2 {
       margin: 0;
       font-family: var(--display);
-      font-weight: 600;
+      font-weight: 700;
       font-size: clamp(22px, 5vh, 28px);
-      color: var(--gold);
+      color: var(--coral);
     }
     #result .sub { margin: 4px 0 8px; font-size: 13px; }
     #result .split {
@@ -149,10 +157,11 @@
       font-family: var(--display);
       font-size: clamp(28px, 6vh, 36px);
       line-height: 1;
+      color: var(--orange);
     }
-    #best { color: var(--gold); font-size: 12px; margin-top: 4px; }
-    .label { font-size: 12px; opacity: 0.8; }
-    #rows { min-width: min(280px, 46vw); }
+    #best { color: var(--orange); font-size: 12px; margin-top: 4px; }
+    .label { font-size: 12px; opacity: 0.75; }
+    #rows { min-width: min(300px, 48vw); }
     .row {
       display: flex;
       gap: 8px;
@@ -160,46 +169,52 @@
       margin: 3px 0;
     }
     .row span:first-child { flex: 1; }
-    .gold { color: var(--gold); }
+    .gold { color: var(--orange); font-weight: 700; }
     .points { width: 4.5em; text-align: right; }
-    .note { font-size: 10px; opacity: 0.65; margin-top: 4px; }
+    .note { font-size: 10px; opacity: 0.7; margin-top: 4px; }
     #chips { display: flex; gap: 8px; margin-top: 6px; }
     .chip { min-width: 36px; text-align: center; font-size: 9px; }
-    .chip strong { display: block; font-size: 14px; }
-    .chip.sky { color: var(--sky); }
-    .chip.miss { color: var(--miss); }
+    .chip strong { display: block; font-size: 14px; color: var(--coral); }
     .actions { margin-top: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
     #rotate {
       z-index: 10;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
       text-align: center;
       padding: 24px;
-      background: var(--night);
-      color: var(--gold);
+      background: var(--sky);
+      color: var(--coral);
       font-family: var(--display);
       font-size: 28px;
+      font-weight: 700;
     }
-    #rotate p { margin: 8px 0 0; color: var(--cream); font-family: var(--body); font-size: 14px; }
+    #rotate p { margin: 8px 0 0; color: var(--ink); font-family: var(--body); font-size: 14px; font-weight: 500; }
+    @media (max-height: 360px) {
+      #title .rules { display: none; }
+      #title .card { padding: 6px 14px 8px; }
+    }
   </style>
 </head>
 <body>
   <div id="app">
     <canvas id="view" width="844" height="390"></canvas>
     <div id="title">
-      <h1>空中ブランコ</h1>
-      <p>星と拍が重なる「ノ」で、手を離せ</p>
-      <div class="rules">
-        さん、はい、セー、ノ。バーが星を通る瞬間が完璧。<br>
-        早いと飛びすぎ、遅いと届かない。キャッチャーの手元が的。<br>
-        音は最初のタップで鳴り始めます。
+      <div class="card">
+        <h1>空中ブランコ</h1>
+        <p>席が的の真上を通る「ノ」で、手を離せ</p>
+        <div class="rules">
+          回るほど鎖が開いて、席は外へ持ち上がる。<br>
+          さん、はい、セー、ノ。早いとクッション、遅いとプール。<br>
+          音は最初のタップで鳴り始めます。
+        </div>
+        <button id="start" type="button">乗車する</button>
       </div>
-      <button id="start" type="button">幕を開ける</button>
     </div>
     <div id="result" hidden>
       <div class="card">
-        <h2 id="headline">もう一稽古</h2>
+        <h2 id="headline">もう一周</h2>
         <p class="sub" id="subtitle"></p>
         <div class="split">
           <div>
@@ -207,13 +222,13 @@
             <div id="total">0</div>
             <div id="best"></div>
             <div class="actions">
-              <button id="retry" type="button">もう一度</button>
-              <button id="back" class="ghost" type="button">タイトルへ</button>
+              <button id="retry" type="button">もう一周</button>
+              <button id="back" class="ghost" type="button">チケット売り場へ</button>
             </div>
           </div>
           <div>
             <div id="rows"></div>
-            <div class="note">幕ボーナスはキャッチの数だけ</div>
+            <div class="note">区ボーナスは、的に入った回数だけ</div>
             <div id="chips"></div>
           </div>
         </div>
@@ -222,7 +237,7 @@
     <button id="mute" type="button" aria-label="音をオフにする">音オン</button>
     <div id="rotate" hidden>
       横にしてください
-      <p>空中ブランコは横画面で飛びます。</p>
+      <p>空中ブランコは横画面で回ります。</p>
     </div>
   </div>
   <script src="tuning.js"></script>
